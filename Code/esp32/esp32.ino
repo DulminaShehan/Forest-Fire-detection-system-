@@ -1,13 +1,34 @@
-#define LED 2   // GPIO pin (built-in LED usually GPIO 2)
+#include <WiFi.h>
+
+const char* ssid = "Dulmina";
+const char* password = "dula1790";
+
+#define LED 2
 
 void setup() {
-  pinMode(LED, OUTPUT);   // Set pin as output
+  Serial.begin(115200);
+  delay(1000);   // Important for serial start
+
+  pinMode(LED, OUTPUT);
+
+  Serial.println();
+  Serial.println("Starting ESP32...");
+  Serial.println("Connecting to WiFi");
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.println("WiFi Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  digitalWrite(LED, HIGH);
 }
 
 void loop() {
-  digitalWrite(LED, HIGH);  // Turn LED ON
-  delay(1000);              // Wait 1 second
-
-  digitalWrite(LED, LOW);   // Turn LED OFF
-  delay(1000);              // Wait 1 second
 }
