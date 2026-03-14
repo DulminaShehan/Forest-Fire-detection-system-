@@ -1,11 +1,12 @@
 #include <WiFi.h>
 #include "DHT.h"
 
-#define LED_PIN 2      // Built-in LED
-#define DHTPIN 4       // DHT sensor DATA pin
-#define DHTTYPE DHT22  // DHT22 or DHT11
+#define LED_PIN 2
+#define DHTPIN 4
+#define DHTTYPE DHT22
 
-#define FLAME_PIN 15   // Connect D1 to GPIO15
+#define FLAME_ANALOG_PIN 34  // Flame AO
+#define LDR_PIN 35           // LDR analog pin
 
 const char* ssid = "Dulmina";
 const char* password = "dula1790";
@@ -15,9 +16,8 @@ DHT dht(DHTPIN, DHTTYPE);
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
-  pinMode(FLAME_PIN, INPUT);
 
-  // WiFi connection
+  // WiFi
   Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -44,23 +44,24 @@ void loop() {
   float tempC = dht.readTemperature();
   float hum = dht.readHumidity();
   if (isnan(tempC) || isnan(hum)) {
-    Serial.println("Failed to read from DHT sensor!");
+    Serial.println("Failed to read DHT sensor!");
   } else {
-    Serial.print("Temperature: ");
+    Serial.print("Temp: ");
     Serial.print(tempC);
-    Serial.print(" °C, Humidity: ");
+    Serial.print(" °C, Hum: ");
     Serial.print(hum);
     Serial.println(" %");
   }
 
-  // Read Flame sensor
-  int flameState = digitalRead(FLAME_PIN);
-  if (flameState == LOW) { // LOW = flame detected (depends on module)
-    Serial.println("🔥 Flame Detected!");
-    digitalWrite(LED_PIN, HIGH); // Turn LED ON
-  } else {
-    Serial.println("No Flame");
-  }
+  // Read Flame analog sensor
+  int flameValue = analogRead(FLAME_ANALOG_PIN);
+  Serial.print("Flame Analog Value: ");
+  Serial.println(flameValue);
+
+  // Read LDR analog sensor
+  int ldrValue = analogRead(LDR_PIN);
+  Serial.print("LDR Analog Value: ");
+  Serial.println(ldrValue);
 
   delay(1000);
 }
