@@ -1,6 +1,8 @@
 #include "DHT.h"
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
+#include <TinyGPS++.h>
+#include <HardwareSerial.h>
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 
@@ -19,6 +21,20 @@ FirebaseConfig config;
 bool firebaseReady = false;
 bool signupDone    = false;
 
+// ── GPS ───────────────────────────────────────
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(1);
+#define GPS_RX_PIN  16
+#define GPS_TX_PIN  17
+
+float gpsLat   = 0;
+float gpsLng   = 0;
+float gpsAlt   = 0;
+float gpsSpeed = 0;
+int   gpsSats  = 0;
+bool  gpsFixed = false;
+
+// ── Pins ──────────────────────────────────────
 #define DHTPIN           4
 #define DHTTYPE          DHT22
 #define RAIN_DIGITAL_PIN 27
@@ -35,19 +51,14 @@ bool signupDone    = false;
 #define FLAME_8_PIN      15
 #define FLAME_9_PIN      2
 #define FLAME_10_PIN     5
-#define VOLTAGE_PIN      18   // voltage sensor
+#define VOLTAGE_PIN      18
 
-// ── Voltage settings ───────────────────────────
-// Change these based on your voltage divider resistors
-// Default: R1=30k R2=7.5k → max 16.5V
-#define VOLTAGE_R1        30000.0  // R1 resistor ohms
-#define VOLTAGE_R2         7500.0  // R2 resistor ohms
-#define VOLTAGE_REF           3.3  // ESP32 reference voltage
-#define VOLTAGE_ADC_MAX    4095.0  // 12 bit ADC
-#define BATTERY_MAX          12.6  // 3S LiPo full
-#define BATTERY_MIN           9.0  // 3S LiPo empty
-// If using single cell: MAX=4.2 MIN=3.0
-// If using 12V lead acid: MAX=12.7 MIN=11.0
+#define VOLTAGE_R1       30000.0
+#define VOLTAGE_R2        7500.0
+#define VOLTAGE_REF          3.3
+#define VOLTAGE_ADC_MAX   4095.0
+#define BATTERY_MAX         12.6
+#define BATTERY_MIN          9.0
 
 #define GAS_THRESHOLD   1000
 #define FIRE_THRESHOLD  1500
@@ -56,21 +67,21 @@ bool signupDone    = false;
 
 DHT dht(DHTPIN, DHTTYPE);
 
-float temperature   = 0;
-float humidity      = 0;
-int   rainPercent   = 0;
-int   rainRaw       = 0;
-bool  isRaining     = false;
-int   mq2Raw        = 0;
-int   mq9Raw        = 0;
-int   mq2Percent    = 0;
-int   mq9Percent    = 0;
-bool  lastRainState = false;
-bool  fireConfirmed = false;
-bool  lastFireState = false;
-int   flameRaw[10]  = {0,0,0,0,0,0,0,0,0,0};
-float batteryVoltage  = 0;
-int   batteryPercent  = 0;
+float  temperature   = 0;
+float  humidity      = 0;
+int    rainPercent   = 0;
+int    rainRaw       = 0;
+bool   isRaining     = false;
+int    mq2Raw        = 0;
+int    mq9Raw        = 0;
+int    mq2Percent    = 0;
+int    mq9Percent    = 0;
+bool   lastRainState = false;
+bool   fireConfirmed = false;
+bool   lastFireState = false;
+int    flameRaw[10]  = {0,0,0,0,0,0,0,0,0,0};
+float  batteryVoltage = 0;
+int    batteryPercent = 0;
 String batteryStatus  = "Unknown";
 
 // ── Labels ────────────────────────────────────
@@ -97,32 +108,45 @@ const char* flameLabel(int r) {
   return "VERY CLOSE";
 }
 
-// ── Read Battery Voltage ───────────────────────
+// ── Read GPS ──────────────────────────────────
+void readGPS() {
+  // Feed GPS data for 300ms
+  unsigned long start = millis();
+  while (millis() - start < 300) {
+    while (gpsSerial.available()) {
+      gps.encode(gpsSerial.read());
+    }
+  }
+
+  gpsSats = gps.satellites.value();
+
+  if (gps.location.isValid()) {
+    gpsFixed = true;
+    gpsLat   = gps.location.lat();
+    gpsLng   = gps.location.lng();
+    gpsAlt   = gps.altitude.meters();
+    gpsSpeed = gps.speed.kmph();
+  } else {
+    gpsFixed = false;
+  }
+}
+
+// ── Read Battery ──────────────────────────────
 void readBattery() {
-  // Take 10 samples and average for stability
   int total = 0;
   for (int i = 0; i < 10; i++) {
     total += analogRead(VOLTAGE_PIN);
     delay(5);
   }
-  float avgRaw = total / 10.0;
-
-  // Convert ADC to actual voltage
+  float avgRaw     = total / 10.0;
   float adcVoltage = (avgRaw / VOLTAGE_ADC_MAX) * VOLTAGE_REF;
-
-  // Apply voltage divider formula
-  batteryVoltage = adcVoltage * ((VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2);
-
-  // Calculate percentage
-  batteryPercent = map(
+  batteryVoltage   = adcVoltage * ((VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2);
+  batteryPercent   = constrain(map(
     (int)(batteryVoltage * 100),
     (int)(BATTERY_MIN * 100),
     (int)(BATTERY_MAX * 100),
-    0, 100
-  );
-  batteryPercent = constrain(batteryPercent, 0, 100);
+    0, 100), 0, 100);
 
-  // Battery status
   if      (batteryPercent >= 80) batteryStatus = "Full";
   else if (batteryPercent >= 60) batteryStatus = "Good";
   else if (batteryPercent >= 40) batteryStatus = "Medium";
@@ -157,17 +181,15 @@ bool readFlameSensors() {
 // ── Send Flame to Firebase ────────────────────
 void sendFlameToFirebase() {
   if (!Firebase.ready() || !signupDone) return;
-
   FirebaseJson json;
   for (int i = 0; i < 10; i++) {
     json.set("s" + String(i + 1), flameRaw[i]);
   }
-
-  String flamePath = "/devices/device_01/sensors/flame";
-  if (Firebase.RTDB.setJSON(&fbdo2, flamePath.c_str(), &json)) {
-    Serial.println(F("Flame sent OK!"));
+  if (Firebase.RTDB.setJSON(&fbdo2,
+      "/devices/device_01/sensors/flame", &json)) {
+    Serial.println(F("Flame OK!"));
   } else {
-    Serial.print(F("Flame failed: "));
+    Serial.print(F("Flame fail: "));
     Serial.println(fbdo2.errorReason());
   }
 }
@@ -179,52 +201,63 @@ void sendToFirebase() {
   Serial.print(F("Sending... "));
   String b = "/devices/device_01";
 
-  // Main sensors
-  FirebaseJson sensorJson;
-  sensorJson.set("temperature",    temperature);
-  sensorJson.set("humidity",       humidity);
-  sensorJson.set("rain_raw",       rainRaw);
-  sensorJson.set("rain_percent",   rainPercent);
-  sensorJson.set("rain_status",    rainLabel());
-  sensorJson.set("is_raining",     isRaining);
-  sensorJson.set("mq2_raw",        mq2Raw);
-  sensorJson.set("mq2_percent",    mq2Percent);
-  sensorJson.set("mq2_status",     gasLabel(mq2Raw));
-  sensorJson.set("mq9_raw",        mq9Raw);
-  sensorJson.set("mq9_percent",    mq9Percent);
-  sensorJson.set("mq9_status",     gasLabel(mq9Raw));
-  sensorJson.set("fire_confirmed", fireConfirmed);
+  // Sensors
+  FirebaseJson sJson;
+  sJson.set("temperature",    temperature);
+  sJson.set("humidity",       humidity);
+  sJson.set("rain_raw",       rainRaw);
+  sJson.set("rain_percent",   rainPercent);
+  sJson.set("rain_status",    rainLabel());
+  sJson.set("is_raining",     isRaining);
+  sJson.set("mq2_raw",        mq2Raw);
+  sJson.set("mq2_percent",    mq2Percent);
+  sJson.set("mq2_status",     gasLabel(mq2Raw));
+  sJson.set("mq9_raw",        mq9Raw);
+  sJson.set("mq9_percent",    mq9Percent);
+  sJson.set("mq9_status",     gasLabel(mq9Raw));
+  sJson.set("fire_confirmed", fireConfirmed);
+  Firebase.RTDB.setJSON(&fbdo, (b+"/sensors").c_str(), &sJson);
 
-  Firebase.RTDB.setJSON(&fbdo, (b + "/sensors").c_str(), &sensorJson);
+  // GPS
+  FirebaseJson gJson;
+  gJson.set("fixed",      gpsFixed);
+  gJson.set("satellites", gpsSats);
+  if (gpsFixed) {
+    gJson.set("latitude",  gpsLat);
+    gJson.set("longitude", gpsLng);
+    gJson.set("altitude",  gpsAlt);
+    gJson.set("speed",     gpsSpeed);
+    String mapsLink = "https://maps.google.com/?q=";
+    mapsLink += String(gpsLat, 6) + "," + String(gpsLng, 6);
+    gJson.set("maps_link", mapsLink.c_str());
+  }
+  Firebase.RTDB.setJSON(&fbdo, (b+"/gps").c_str(), &gJson);
 
   // Battery
-  FirebaseJson battJson;
-  battJson.set("voltage",  batteryVoltage);
-  battJson.set("percent",  batteryPercent);
-  battJson.set("status",   batteryStatus.c_str());
-  Firebase.RTDB.setJSON(&fbdo, (b + "/battery").c_str(), &battJson);
+  FirebaseJson bJson;
+  bJson.set("voltage", batteryVoltage);
+  bJson.set("percent", batteryPercent);
+  bJson.set("status",  batteryStatus.c_str());
+  Firebase.RTDB.setJSON(&fbdo, (b+"/battery").c_str(), &bJson);
 
   // Info
-  FirebaseJson infoJson;
-  infoJson.set("device_id", DEVICE_ID);
-  infoJson.set("status",    "online");
-  infoJson.set("uptime",    (int)(millis() / 1000));
-  Firebase.RTDB.setJSON(&fbdo, (b + "/info").c_str(), &infoJson);
+  FirebaseJson iJson;
+  iJson.set("device_id", DEVICE_ID);
+  iJson.set("status",    "online");
+  iJson.set("uptime",    (int)(millis()/1000));
+  Firebase.RTDB.setJSON(&fbdo, (b+"/info").c_str(), &iJson);
 
   // Alerts
   bool mq2Alert = mq2Raw > GAS_THRESHOLD;
   bool mq9Alert = mq9Raw > GAS_THRESHOLD;
-  bool battLow  = batteryPercent < 20;
-  FirebaseJson alertJson;
-  alertJson.set("fire",        fireConfirmed);
-  alertJson.set("gas",         mq2Alert || mq9Alert);
-  alertJson.set("rain",        isRaining);
-  alertJson.set("battery_low", battLow);
-  Firebase.RTDB.setJSON(&fbdo, (b + "/alerts").c_str(), &alertJson);
+  FirebaseJson aJson;
+  aJson.set("fire",        fireConfirmed);
+  aJson.set("gas",         mq2Alert || mq9Alert);
+  aJson.set("rain",        isRaining);
+  aJson.set("battery_low", batteryPercent < 20);
+  Firebase.RTDB.setJSON(&fbdo, (b+"/alerts").c_str(), &aJson);
 
   Serial.println(F("Done!"));
-
-  // Flame sensors
   sendFlameToFirebase();
 }
 
@@ -247,6 +280,10 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  // GPS Serial
+  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  Serial.println(F("GPS started GPIO 16/17"));
+
   dht.begin();
   delay(2000);
 
@@ -259,7 +296,7 @@ void setup() {
   pinMode(VOLTAGE_PIN,  INPUT);
 
   Serial.println(F("========================================"));
-  Serial.println(F("  ESP32 Forest Fire [device_01]"));
+  Serial.println(F("  ESP32 Forest Fire [device_01] + GPS"));
   Serial.println(F("========================================"));
 
   // DHT22 test
@@ -283,12 +320,19 @@ void setup() {
   int dryTest = analogRead(RAIN_ANALOG_PIN);
   Serial.print(F("Rain dry: ")); Serial.println(dryTest);
 
+  // GPS test
+  Serial.println(F("GPS: Waiting for fix..."));
+  Serial.println(F("Place GPS near window or outside!"));
+
   // MQ Warmup
   Serial.println(F("Warming up MQ 60 seconds..."));
   for (int i = 60; i > 0; i--) {
+    // Feed GPS during warmup
+    while (gpsSerial.available()) gps.encode(gpsSerial.read());
     Serial.print(i);
     Serial.print(F("s MQ2:")); Serial.print(analogRead(MQ2_ANALOG_PIN));
-    Serial.print(F(" MQ9:")); Serial.println(analogRead(MQ9_ANALOG_PIN));
+    Serial.print(F(" MQ9:")); Serial.print(analogRead(MQ9_ANALOG_PIN));
+    Serial.print(F(" GPS Sats:")); Serial.println(gps.satellites.value());
     delay(1000);
   }
   Serial.println(F("MQ ready!"));
@@ -320,6 +364,12 @@ void setup() {
 // ── Loop ──────────────────────────────────────
 void loop() {
 
+  // Feed GPS continuously
+  while (gpsSerial.available()) {
+    gps.encode(gpsSerial.read());
+  }
+
+  // Flame check with debounce
   bool rawFire = readFlameSensors();
   static int flameCounter = 0;
 
@@ -333,12 +383,13 @@ void loop() {
 
   if (fireConfirmed && !lastFireState) {
     Serial.println(F("FIRE CONFIRMED!"));
-    FirebaseJson alertJson;
-    alertJson.set("fire", true);
-    alertJson.set("gas",  false);
-    alertJson.set("rain", isRaining);
-    alertJson.set("battery_low", batteryPercent < 20);
-    Firebase.RTDB.setJSON(&fbdo, "/devices/device_01/alerts", &alertJson);
+    FirebaseJson aJson;
+    aJson.set("fire",        true);
+    aJson.set("gas",         mq2Raw > GAS_THRESHOLD);
+    aJson.set("rain",        isRaining);
+    aJson.set("battery_low", batteryPercent < 20);
+    Firebase.RTDB.setJSON(&fbdo,
+      "/devices/device_01/alerts", &aJson);
   }
   lastFireState = fireConfirmed;
 
@@ -364,8 +415,8 @@ void loop() {
     rainPercent = map(rainRaw, 4095, 0, 0, 100);
     isRaining   = rainRaw < RAIN_THRESHOLD;
 
-    // Read battery
     readBattery();
+    readGPS();
 
     if (isRaining  && !lastRainState) Serial.println(F("Rain Started!"));
     if (!isRaining && lastRainState)  Serial.println(F("Rain Stopped!"));
@@ -395,6 +446,18 @@ void loop() {
     Serial.print(F("Voltage : ")); Serial.print(batteryVoltage, 2); Serial.println(F(" V"));
     Serial.print(F("Percent : ")); Serial.print(batteryPercent);    Serial.println(F(" %"));
     Serial.print(F("Status  : ")); Serial.println(batteryStatus);
+    Serial.println(F("---- GPS ----"));
+    Serial.print(F("Fixed   : ")); Serial.println(gpsFixed ? F("YES") : F("NO - Waiting"));
+    Serial.print(F("Sats    : ")); Serial.println(gpsSats);
+    if (gpsFixed) {
+      Serial.print(F("Lat     : ")); Serial.println(gpsLat, 6);
+      Serial.print(F("Lng     : ")); Serial.println(gpsLng, 6);
+      Serial.print(F("Alt     : ")); Serial.print(gpsAlt, 1); Serial.println(F(" m"));
+      Serial.print(F("Speed   : ")); Serial.print(gpsSpeed, 1); Serial.println(F(" km/h"));
+      Serial.print(F("Map     : https://maps.google.com/?q="));
+      Serial.print(gpsLat, 6); Serial.print(F(","));
+      Serial.println(gpsLng, 6);
+    }
     Serial.println(F("========================================"));
     Serial.println();
 
