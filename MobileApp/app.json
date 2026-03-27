@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "Forest Fire Monitor",
+    "slug": "forest-fire-monitor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.forestfire.monitor",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Used to show device locations on the fire monitoring map.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Used to show device locations on the fire monitoring map.",
+        "NSMicrophoneUsageDescription": "Used for fire alarm audio alerts.",
+        "UIBackgroundModes": ["audio", "location", "fetch"]
+      }
+    },
+    "android": {
+      "package": "com.forestfire.monitor",
+      "versionCode": 1,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Used to show device locations on the fire monitoring map."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Used for fire alarm audio alerts."
+        }
+      ]
+    ]
+  }
+}

@@ -21,7 +21,6 @@ FirebaseConfig config;
 bool firebaseReady = false;
 bool signupDone    = false;
 
-// ── GPS ───────────────────────────────────────
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 #define GPS_RX_PIN  16
@@ -34,7 +33,6 @@ float gpsSpeed = 0;
 int   gpsSats  = 0;
 bool  gpsFixed = false;
 
-// ── Pins ──────────────────────────────────────
 #define DHTPIN           4
 #define DHTTYPE          DHT22
 #define RAIN_DIGITAL_PIN 27
@@ -51,14 +49,14 @@ bool  gpsFixed = false;
 #define FLAME_8_PIN      15
 #define FLAME_9_PIN      2
 #define FLAME_10_PIN     5
-#define VOLTAGE_PIN      18
+#define VOLTAGE_PIN      26   // ← changed to 26
 
 #define VOLTAGE_R1       30000.0
 #define VOLTAGE_R2        7500.0
 #define VOLTAGE_REF          3.3
 #define VOLTAGE_ADC_MAX   4095.0
-#define BATTERY_MAX         12.6
-#define BATTERY_MIN          9.0
+#define BATTERY_MAX          8.4
+#define BATTERY_MIN          6.0
 
 #define GAS_THRESHOLD   1000
 #define FIRE_THRESHOLD  1500
@@ -67,24 +65,23 @@ bool  gpsFixed = false;
 
 DHT dht(DHTPIN, DHTTYPE);
 
-float  temperature   = 0;
-float  humidity      = 0;
-int    rainPercent   = 0;
-int    rainRaw       = 0;
-bool   isRaining     = false;
-int    mq2Raw        = 0;
-int    mq9Raw        = 0;
-int    mq2Percent    = 0;
-int    mq9Percent    = 0;
-bool   lastRainState = false;
-bool   fireConfirmed = false;
-bool   lastFireState = false;
-int    flameRaw[10]  = {0,0,0,0,0,0,0,0,0,0};
-float  batteryVoltage = 0;
-int    batteryPercent = 0;
-String batteryStatus  = "Unknown";
+float temperature   = 0;
+float humidity      = 0;
+int   rainPercent   = 0;
+int   rainRaw       = 0;
+bool  isRaining     = false;
+int   mq2Raw        = 0;
+int   mq9Raw        = 0;
+int   mq2Percent    = 0;
+int   mq9Percent    = 0;
+bool  lastRainState = false;
+bool  fireConfirmed = false;
+bool  lastFireState = false;
+int   flameRaw[10]  = {0,0,0,0,0,0,0,0,0,0};
+float batteryVoltage = 0;
+int   batteryPercent = 0;
+String batteryStatus = "Unknown";
 
-// ── Labels ────────────────────────────────────
 const char* rainLabel() {
   if (rainPercent == 0)  return "No Rain";
   if (rainPercent <= 30) return "Light Rain";
@@ -108,37 +105,13 @@ const char* flameLabel(int r) {
   return "VERY CLOSE";
 }
 
-// ── Read GPS ──────────────────────────────────
-void readGPS() {
-  // Feed GPS data for 300ms
-  unsigned long start = millis();
-  while (millis() - start < 300) {
-    while (gpsSerial.available()) {
-      gps.encode(gpsSerial.read());
-    }
-  }
-
-  gpsSats = gps.satellites.value();
-
-  if (gps.location.isValid()) {
-    gpsFixed = true;
-    gpsLat   = gps.location.lat();
-    gpsLng   = gps.location.lng();
-    gpsAlt   = gps.altitude.meters();
-    gpsSpeed = gps.speed.kmph();
-  } else {
-    gpsFixed = false;
-  }
-}
-
-// ── Read Battery ──────────────────────────────
 void readBattery() {
   int total = 0;
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 20; i++) {
     total += analogRead(VOLTAGE_PIN);
-    delay(5);
+    delay(2);
   }
-  float avgRaw     = total / 10.0;
+  float avgRaw     = total / 20.0;
   float adcVoltage = (avgRaw / VOLTAGE_ADC_MAX) * VOLTAGE_REF;
   batteryVoltage   = adcVoltage * ((VOLTAGE_R1 + VOLTAGE_R2) / VOLTAGE_R2);
   batteryPercent   = constrain(map(
@@ -154,7 +127,23 @@ void readBattery() {
   else                           batteryStatus = "Critical";
 }
 
-// ── Read 10 Flame Sensors ─────────────────────
+void readGPS() {
+  unsigned long start = millis();
+  while (millis() - start < 300) {
+    while (gpsSerial.available()) gps.encode(gpsSerial.read());
+  }
+  gpsSats = gps.satellites.value();
+  if (gps.location.isValid()) {
+    gpsFixed = true;
+    gpsLat   = gps.location.lat();
+    gpsLng   = gps.location.lng();
+    gpsAlt   = gps.altitude.meters();
+    gpsSpeed = gps.speed.kmph();
+  } else {
+    gpsFixed = false;
+  }
+}
+
 bool readFlameSensors() {
   flameRaw[0] = analogRead(FLAME_1_PIN);
   flameRaw[1] = analogRead(FLAME_2_PIN);
@@ -178,7 +167,6 @@ bool readFlameSensors() {
   return anyFire;
 }
 
-// ── Send Flame to Firebase ────────────────────
 void sendFlameToFirebase() {
   if (!Firebase.ready() || !signupDone) return;
   FirebaseJson json;
@@ -194,14 +182,12 @@ void sendFlameToFirebase() {
   }
 }
 
-// ── Send All to Firebase ──────────────────────
 void sendToFirebase() {
   if (!Firebase.ready() || !signupDone) return;
 
   Serial.print(F("Sending... "));
   String b = "/devices/device_01";
 
-  // Sensors
   FirebaseJson sJson;
   sJson.set("temperature",    temperature);
   sJson.set("humidity",       humidity);
@@ -218,7 +204,6 @@ void sendToFirebase() {
   sJson.set("fire_confirmed", fireConfirmed);
   Firebase.RTDB.setJSON(&fbdo, (b+"/sensors").c_str(), &sJson);
 
-  // GPS
   FirebaseJson gJson;
   gJson.set("fixed",      gpsFixed);
   gJson.set("satellites", gpsSats);
@@ -233,21 +218,18 @@ void sendToFirebase() {
   }
   Firebase.RTDB.setJSON(&fbdo, (b+"/gps").c_str(), &gJson);
 
-  // Battery
   FirebaseJson bJson;
   bJson.set("voltage", batteryVoltage);
   bJson.set("percent", batteryPercent);
   bJson.set("status",  batteryStatus.c_str());
   Firebase.RTDB.setJSON(&fbdo, (b+"/battery").c_str(), &bJson);
 
-  // Info
   FirebaseJson iJson;
   iJson.set("device_id", DEVICE_ID);
   iJson.set("status",    "online");
   iJson.set("uptime",    (int)(millis()/1000));
   Firebase.RTDB.setJSON(&fbdo, (b+"/info").c_str(), &iJson);
 
-  // Alerts
   bool mq2Alert = mq2Raw > GAS_THRESHOLD;
   bool mq9Alert = mq9Raw > GAS_THRESHOLD;
   FirebaseJson aJson;
@@ -261,7 +243,6 @@ void sendToFirebase() {
   sendFlameToFirebase();
 }
 
-// ── WiFi ──────────────────────────────────────
 void connectWiFi() {
   Serial.print(F("Connecting WiFi..."));
   WiFi.begin(ssid, password);
@@ -275,12 +256,10 @@ void connectWiFi() {
   Serial.print(F("Signal: ")); Serial.print(WiFi.RSSI()); Serial.println(F(" dBm"));
 }
 
-// ── Setup ─────────────────────────────────────
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  // GPS Serial
   gpsSerial.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   Serial.println(F("GPS started GPIO 16/17"));
 
@@ -288,18 +267,18 @@ void setup() {
   delay(2000);
 
   pinMode(RAIN_DIGITAL_PIN, INPUT);
+  pinMode(VOLTAGE_PIN,      INPUT);
   pinMode(FLAME_6_PIN,  INPUT);
   pinMode(FLAME_7_PIN,  INPUT);
   pinMode(FLAME_8_PIN,  INPUT);
   pinMode(FLAME_9_PIN,  INPUT);
   pinMode(FLAME_10_PIN, INPUT);
-  pinMode(VOLTAGE_PIN,  INPUT);
 
   Serial.println(F("========================================"));
   Serial.println(F("  ESP32 Forest Fire [device_01] + GPS"));
+  Serial.println(F("  Voltage sensor on GPIO 26"));
   Serial.println(F("========================================"));
 
-  // DHT22 test
   float testH = dht.readHumidity();
   float testT = dht.readTemperature();
   if (isnan(testH) || isnan(testT)) {
@@ -312,27 +291,24 @@ void setup() {
 
   // Battery test
   readBattery();
-  Serial.print(F("Battery: ")); Serial.print(batteryVoltage, 2);
-  Serial.print(F("V | ")); Serial.print(batteryPercent);
-  Serial.print(F("% | ")); Serial.println(batteryStatus);
+  Serial.print(F("Battery raw ADC : ")); Serial.println(analogRead(VOLTAGE_PIN));
+  Serial.print(F("Battery voltage : ")); Serial.print(batteryVoltage, 2); Serial.println(F(" V"));
+  Serial.print(F("Battery percent : ")); Serial.print(batteryPercent); Serial.println(F(" %"));
+  Serial.print(F("Battery status  : ")); Serial.println(batteryStatus);
+  if (batteryVoltage < 0.1) {
+    Serial.println(F("WARNING: 0V! Check S->GPIO26 +->Battery+ -->GND"));
+  }
 
-  // Rain test
   int dryTest = analogRead(RAIN_ANALOG_PIN);
   Serial.print(F("Rain dry: ")); Serial.println(dryTest);
 
-  // GPS test
-  Serial.println(F("GPS: Waiting for fix..."));
-  Serial.println(F("Place GPS near window or outside!"));
-
-  // MQ Warmup
   Serial.println(F("Warming up MQ 60 seconds..."));
   for (int i = 60; i > 0; i--) {
-    // Feed GPS during warmup
     while (gpsSerial.available()) gps.encode(gpsSerial.read());
     Serial.print(i);
     Serial.print(F("s MQ2:")); Serial.print(analogRead(MQ2_ANALOG_PIN));
     Serial.print(F(" MQ9:")); Serial.print(analogRead(MQ9_ANALOG_PIN));
-    Serial.print(F(" GPS Sats:")); Serial.println(gps.satellites.value());
+    Serial.print(F(" GPS:")); Serial.println(gps.satellites.value());
     delay(1000);
   }
   Serial.println(F("MQ ready!"));
@@ -361,15 +337,10 @@ void setup() {
   Serial.println(F("========================================"));
 }
 
-// ── Loop ──────────────────────────────────────
 void loop() {
 
-  // Feed GPS continuously
-  while (gpsSerial.available()) {
-    gps.encode(gpsSerial.read());
-  }
+  while (gpsSerial.available()) gps.encode(gpsSerial.read());
 
-  // Flame check with debounce
   bool rawFire = readFlameSensors();
   static int flameCounter = 0;
 
@@ -447,7 +418,7 @@ void loop() {
     Serial.print(F("Percent : ")); Serial.print(batteryPercent);    Serial.println(F(" %"));
     Serial.print(F("Status  : ")); Serial.println(batteryStatus);
     Serial.println(F("---- GPS ----"));
-    Serial.print(F("Fixed   : ")); Serial.println(gpsFixed ? F("YES") : F("NO - Waiting"));
+    Serial.print(F("Fixed   : ")); Serial.println(gpsFixed ? F("YES") : F("NO"));
     Serial.print(F("Sats    : ")); Serial.println(gpsSats);
     if (gpsFixed) {
       Serial.print(F("Lat     : ")); Serial.println(gpsLat, 6);
