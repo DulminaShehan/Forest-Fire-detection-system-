@@ -104,7 +104,7 @@ function HikerDeviceCard({ deviceId, deviceData, online, lastSeen, dark, fakeGps
 }
 
 // ── Officer device card ───────────────────────────────────────────
-function OfficerDeviceCard({ deviceId, deviceData, online, lastSeen, dark, fakeGps }) {
+function OfficerDeviceCard({ deviceId, deviceData, online, dark, fakeGps }) {
   const s    = deviceData?.sensors || {};
   const b    = useFakeBattery();
   const rawG = deviceData?.gps || {};
@@ -177,9 +177,9 @@ function OfficerDeviceCard({ deviceId, deviceData, online, lastSeen, dark, fakeG
       <Text style={[styles.sectionLabel, { color: sub }]}>System</Text>
       <View style={styles.grid2}>
         <SensorCard dark={dark} icon="🔋" label="Battery"
-          value={b.percent != null ? b.percent + "%" : "--"}
-          sub={b.voltage != null ? b.voltage.toFixed(2) + "V · " + (b.status || "") : "—"}
-          level={b.percent < 20 ? "alert" : b.percent < 40 ? "warn" : "safe"} />
+          value={online ? (b.percent != null ? b.percent + "%" : "--") : "0%"}
+          sub={online ? (b.voltage != null ? b.voltage.toFixed(2) + "V · " + (b.status || "") : "—") : "Recharge"}
+          level={!online ? "alert" : b.percent < 20 ? "alert" : b.percent < 40 ? "warn" : "safe"} />
         <View style={{ width: 8 }} />
         <SensorCard dark={dark} icon="📍" label="GPS"
           value={g.fixed ? "Fixed" : "Waiting"}

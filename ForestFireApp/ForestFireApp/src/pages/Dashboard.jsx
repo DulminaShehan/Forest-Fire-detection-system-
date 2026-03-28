@@ -198,9 +198,9 @@ function OfficerDeviceSection({ deviceId, deviceData, online, lastSeen, dark, fa
         <div className={`text-xs font-semibold uppercase tracking-widest mb-2 ${textSm}`}>System</div>
         <div className="grid grid-cols-2 gap-2">
           <SensorCard dark={dark} icon="🔋" label="Battery"
-            value={b.percent != null ? b.percent + "%" : "--"}
-            sub={b.voltage != null ? b.voltage.toFixed(2) + "V · " + (b.status || "") : "—"}
-            level={b.percent < 20 ? "alert" : b.percent < 40 ? "warn" : "safe"}
+            value={online ? (b.percent != null ? b.percent + "%" : "--") : "0%"}
+            sub={online ? (b.voltage != null ? b.voltage.toFixed(2) + "V · " + (b.status || "") : "—") : "Recharge"}
+            level={!online ? "alert" : b.percent < 20 ? "alert" : b.percent < 40 ? "warn" : "safe"}
           />
           <SensorCard dark={dark} icon="📍" label="GPS"
             value={g.fixed ? "Fixed" : "Waiting"}
