@@ -1,0 +1,14 @@
+{
+  "rules": {
+    "devices": {
+      ".read": "auth != null",
+      ".write": true
+    },
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    }
+  }
+}

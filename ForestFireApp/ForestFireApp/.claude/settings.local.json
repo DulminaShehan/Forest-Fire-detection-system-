@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/Forest-Fire-detection-system-/**)",
+      "Read(//d/Forest-Fire-detection-system-/ForestFireApp/**)",
+      "Bash(find d:/Forest-Fire-detection-system- -name pubspec.yaml -o -name AndroidManifest.xml -o -name build.gradle -o -name *.expo)",
+      "Bash(npx create-expo-app:*)",
+      "Bash(npm install:*)",
+      "Bash(npx expo:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8081)",
+      "Bash(npm start:*)",
+      "Bash(eas --version)",
+      "Bash(eas build:configure)",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Host ''done''\")",
+      "Bash(dir \"d:/Forest-Fire-detection-system-/MobileApp\" /b)"
+    ]
+  }
+}
