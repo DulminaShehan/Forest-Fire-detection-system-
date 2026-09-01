@@ -111,6 +111,7 @@ Module (S)  ──── GPIO 26
 ```
 
 ---
+![Uploading ChatGPT Image Sep 1, 2026, 06_51_21 PM.png…]()
 
 ## 💻 Software Requirements
 
